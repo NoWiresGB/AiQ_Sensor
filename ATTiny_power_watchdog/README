@@ -1,0 +1,3 @@
+An ATTiny power watchdog that controls 3.3v & 5v DC boost converters to power on/off companion devices.
+
+Waits for devices to start up and enter wake state using a signal pin, then removes power when the devices signal a sleep state.
