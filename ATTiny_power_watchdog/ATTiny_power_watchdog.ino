@@ -74,14 +74,30 @@ void loop(){
       run_state = 1; // initial power on complete wait for device to sleep
       myWatchdogEnable (SLEEP1); // 1 second short sleep to save power whilst waiting
       break;
+      
     case 1:
-      if ( digitalRead (SLEEPSIG) == HIGH) {
-        // the companion device hasn't woke up yet;
-        myWatchdogEnable (SLEEP1);  // device not yet fully awake go back to sleep to save power
-      } else {
-        run_state = 2;  // the device has pulled the SLEEPSIG pin low so is now awake
+      {
+        bool awake = LOW;
+        for (int i=0; i < 60; i++) { // wait for 60 seconds before shutting down and going into charge only mode
+          if ( digitalRead (SLEEPSIG)   == HIGH) {
+            // the companion device hasn't woke up yet;
+            myWatchdogEnable (SLEEP1);  // device not yet fully awake go back to sleep to save power
+          } else {
+            awake = HIGH;
+            i = 60; // break out of for loop - case break; didn't seem to work ??
+          }  
+        }
+        if (awake == HIGH) {  
+          run_state = 2;  // the device has pulled the SLEEPSIG pin low so is now awake
+        } else {
+          // device didn't wake up so we shut down the boost rails and move to sleep forever
+          digitalWrite (EN5, LOW);
+          digitalWrite (EN3, LOW);
+          run_state = 3;
+        }    
+        break;
       }
-      break;
+      
     case 2:
       if (digitalRead (SLEEPSIG) == HIGH) {
         // SLEEPSIG has gone HIGH again - device has signalled to sleep
@@ -95,6 +111,12 @@ void loop(){
         // device still awake - sleep then check again in a second
         myWatchdogEnable (SLEEP1);
       }
+      break;
+      case 3: 
+      while (1) { // forever
+        myWatchdogEnable (SLEEP8);
+      } 
+      // no change of runstate we keep doing this forever until reset
       break;
   }
 }  
