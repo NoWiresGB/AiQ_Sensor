@@ -1,9 +1,8 @@
-
-
 /*
   Written by: James moverley
   Description: esp airQuality monitor using DHT11/SDS011/MQ135
-
+	NB: optimised for hackbox power ninja
+	
   libraries:
     pubsub        https://github.com/knolleary/pubsubclient
     DHTesp        https://github.com/beegee-tokyo/DHTesp
@@ -19,32 +18,22 @@
 
 #include "settings.h"
 
-
 // delay between readings (ms)
-int mainCycle = 300000;
 int sds_init_delay = 30000;
 
 // wifi settings
 // imported from settings.h
 
 // MQTT settings
+// set mqtt_server to IP to override mDNS autodiscovery 
 String mqtt_server = "";
 int mqtt_port;
+
 String mqtt_baseId = "airQ_";
 String mqtt_clientId = "";
 String mqtt_topic = "";
 String mqtt_base_topic = "sensors/airQ";
 String msg = "";
-
-String mqtt_temp = mqtt_topic + "/" + "TEMP";
-String mqtt_humd = mqtt_topic + "/" + "HUMDITY";
-String mqtt_hind = mqtt_topic + "/" + "HEATIND";
-String mqtt_p25n = mqtt_topic + "/" + "PM25_N";
-String mqtt_p25c = mqtt_topic + "/" + "PM25_C";
-String mqtt_p10n = mqtt_topic + "/" + "PM10_N";
-String mqtt_p10c = mqtt_topic + "/" + "PM10_C";
-String mqtt_batt = mqtt_topic + "/" + "BATTERY";
-String mqtt_rssi = mqtt_topic + "/" + "RSSI";
 
 // wifi setup
 WiFiClient espClient;
@@ -63,22 +52,16 @@ int sds_rxPin = 13;
 int sds_txPin = 15;
 SdsDustSensor sds(sds_rxPin, sds_txPin);
 
-// MQ-135 pins
-// needed :(
-
-
-
-
-
-
-
 //---- functions -------------------------------------------------------------------
 //----------------------------------------------------------------------------------
 
-// mqtt stuff
+
+
+//----------------------------------------------------------------------------------
+// ## mqtt stuff
 //----------------------------------------------------------------------------------
 
-// mqtt sleep to include regular client.loop calls
+// mqtt sleep to include regular client.loop calls (keep things alive whilst waiting)
 //----------------------------------------------------------------------------------
 void mqtt_sleep(int sleep_length){
   long sleep_start = millis();
@@ -88,8 +71,7 @@ void mqtt_sleep(int sleep_length){
   }
 }
 
-
-void reconnect() {
+void mqtt_reconnect() {
     Serial.print("[MQTT] Attempting MQTT connection: ");
     while (!client.connected()) {
       Serial.print(".");
@@ -134,28 +116,52 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
 }
 
-
-
-//Correction algorythm thanks to help of Zbyszek Kiliański (Krakow Zdroj)
-// https://github.com/piotrkpaul/esp8266-sds011/blob/master/sds011_nodemcu/sds011_nodemcu.ino
 //----------------------------------------------------------------------------------
-float normalizePM25(float pm25, float humidity){
-  return pm25/(1.0+0.48756*pow((humidity/100.0), 8.60068));
+void init_mqtt() {
+  // mDNS to discover MQTT server
+
+  if (mqtt_server.length() == 0 )
+	if (!MDNS.begin("ESP")) {
+		Serial.println("[mDNS] Error setting up mDNS");
+	} else {
+		Serial.println("[mDNS] Using Setup - Sending Query");
+		int n = MDNS.queryService("mqtt", "tcp");
+		if (n == 0) {
+			Serial.println("[mDNS] No service found");
+		} else {
+			// at least one MQTT service is found
+			// ip no and port of the first one is MDNS.IP(0) and MDNS.port(0)
+			mqtt_server = MDNS.IP(0).toString();
+			mqtt_port = MDNS.port(0);
+			Serial.print("[mDNS] Service discovered: ");
+		}
+	}
+	
+  Serial.print("[MQTT] IUsing server :");
+  Serial.print(mqtt_server);
+  Serial.print(":");
+  Serial.println(mqtt_port);
+        
+  // can only setup clientID and topic once WiFi is up
+  mqtt_clientId = WiFi.macAddress();
+  mqtt_topic = mqtt_base_topic + "/" + mqtt_clientId + "/";
+  
+  // mqtt setup (setup unqiue client id from mac
+  Serial.print("(MQTT] clientId: ");
+  Serial.println(mqtt_clientId);
+  Serial.print("[MQTT] topic: ");
+  Serial.println(mqtt_topic);
+  client.setServer(mqtt_server.c_str(), mqtt_port);
+  client.setCallback(mqtt_callback);
+  //nb mqtt connection is handled later..
 }
+
+
+
 
 //----------------------------------------------------------------------------------
-float normalizePM10(float pm10, float humidity){
-  return pm10/(1.0+0.81559*pow((humidity/100.0), 5.83411));
-}
-
+// ## wifi stuff
 //----------------------------------------------------------------------------------
-float calculatePolutionPM25(float pm25){
-  return pm25*100/25;
-}
-
-float calculatePolutionPM10(float pm10){
-  return pm10*100/50;
-}
 
 //----------------------------------------------------------------------------------
 void init_wifi() {
@@ -180,41 +186,54 @@ void init_wifi() {
 }
 
 //----------------------------------------------------------------------------------
-void init_mqtt() {
-  // mDNS to discover MQTT server
-  if (!MDNS.begin("ESP")) {
-    Serial.println("[mDNS] Error setting up mDNS");
-  } else {
-    Serial.println("[mDNS] Setup - Sending Query");
-    int n = MDNS.queryService("mqtt", "tcp");
-    if (n == 0) {
-      Serial.println("[mDNS] No service found");
-    } else {
-      // at least one MQTT service is found
-      // ip no and port of the first one is MDNS.IP(0) and MDNS.port(0)
-      mqtt_server = MDNS.IP(0).toString();
-      mqtt_port = MDNS.port(0);
-      Serial.print("[mDNS] Service discovered: ");
-      Serial.print(mqtt_server);
-      Serial.print(":");
-      Serial.println(mqtt_port);
-      
-    }
-  }
+// ## sds011 stuff
+//----------------------------------------------------------------------------------
 
-  // can only setup clientID and topic once WiFi is up
-  mqtt_clientId = WiFi.macAddress();
-  mqtt_topic = mqtt_base_topic + "/" + mqtt_clientId + "/";
-  
-  // mqtt setup (setup unqiue client id from mac
-  Serial.println("[MQTT] initiliasing");
-  Serial.print("(MQTT] clientId: ");
-  Serial.println(mqtt_clientId);
-  Serial.print("[MQTT] topic: ");
-  Serial.println(mqtt_topic);
-  client.setServer(mqtt_server.c_str(), mqtt_port);
-  client.setCallback(mqtt_callback);
-  //nb mqtt connection is handled later..
+//Correction algorythm thanks to help of Zbyszek Kiliański (Krakow Zdroj)
+// https://github.com/piotrkpaul/esp8266-sds011/blob/master/sds011_nodemcu/sds011_nodemcu.ino
+//----------------------------------------------------------------------------------
+float normalizePM25(float pm25, float humidity){
+  return pm25/(1.0+0.48756*pow((humidity/100.0), 8.60068));
+}
+
+//----------------------------------------------------------------------------------
+float normalizePM10(float pm10, float humidity){
+  return pm10/(1.0+0.81559*pow((humidity/100.0), 5.83411));
+}
+
+//----------------------------------------------------------------------------------
+float calculatePolutionPM25(float pm25){
+  return pm25*100/25;
+}
+//----------------------------------------------------------------------------------
+float calculatePolutionPM10(float pm10){
+  return pm10*100/50;
+}
+
+//----------------------------------------------------------------------------------
+// ## DHT sensor init
+//----------------------------------------------------------------------------------
+void init_dhtSensor(){
+  Serial.println("[SENSOR] DHT: initiliasing");
+  pinMode(dht11_pin, INPUT);
+  dht.setup(dht11_pin, DHTesp::DHT11); //
+  Serial.println("[SENSOR] DHT: Setup finished");
+}
+
+//----------------------------------------------------------------------------------
+// ## LED stuff
+//----------------------------------------------------------------------------------
+
+// led init pins
+//----------------------------------------------------------------------------------
+void init_LEDs () {
+  // setup status led(s)
+  Serial.print("[LEDS] initialising");
+  pinMode(ledPin_green, OUTPUT);
+  digitalWrite(ledPin_green, HIGH);
+  pinMode(ledPin_blue, OUTPUT);
+  digitalWrite(ledPin_blue, HIGH);
+  Serial.print("[LEDS] setup complete");
 }
 
 // led on and off functions
@@ -238,10 +257,11 @@ void ledBlink(int duration_ms) {
 } // endfunc
 
 
-
-
-
-//---- setup -----------------------------------------------------------------------
+//----------------------------------------------------------------------------------
+// ## SETUP hook function
+// # NB: for our power managed ESP node, we will remote power on/off so all activity 
+//   during setup phase..
+//----------------------------------------------------------------------------------
 void setup() {
 
   // start serial
@@ -253,69 +273,36 @@ void setup() {
   Serial.println("[SETUP] Starting");
   Serial.println("--------------------------------"); 
 
-  // setup status led(s)
-  Serial.print("[LEDS] initialising");
-  pinMode(ledPin_green, OUTPUT);
-  digitalWrite(ledPin_green, HIGH);
-  pinMode(ledPin_blue, OUTPUT);
-  digitalWrite(ledPin_blue, HIGH);
-  Serial.print("[LEDS] setup complete");
+  // setup LEDS
+  init_LEDs();
+  
+  // setup DHT11
+  init_dhtSensor();
+  
+ 
+  // #1 fire up sds 1st
+  
+  // setup sds011 sensor
+  Serial.println("[SENSOR] SDS: starting");
+  sds.begin(); 
+ 
+  // note millis, so we can calculate how long to delay till sds finish warm up so we can take reading
+  long sdsStarted = millis();
+ 
+  // start sds reading...
+  sds.wakeup();
   
   // setup WIFI
   init_wifi();
 
   // mDNS MQTT setup
   init_mqtt();
-   
-  
-  // setup sds011 sensor
-  Serial.println("[SENSOR] SDS: initialising");
-  sds.begin(); 
-  Serial.print("[SENSOR] SDS: ");
-  Serial.println(sds.queryFirmwareVersion().toString()); // prints firmware version
-  Serial.print("[SENSOR] SDS: ");
-  Serial.println(sds.setQueryReportingMode().toString()); // ensures sensor is in 'query' reporting mode
-  Serial.println("[SENSOR] SDS: Setup finished"); 
-
-  // setup DHT11
-  Serial.println("[SENSOR] DHT: initiliasing");
-  pinMode(dht11_pin, INPUT);
-  dht.setup(dht11_pin, DHTesp::DHT11); //
-  Serial.println("[SENSOR] DHT: Setup finished");
-   
-  //##################################
-  // start web server  
-  //server.begin();
-  //digitalWrite(ledPin_mdnsOK, HIGH);
-  //Serial.println("Server started");
-  //Serial.print("Use this URL to connect: ");
-  //Serial.print("http://");
-  //Serial.print(WiFi.localIP());
-  //Serial.println("/"); 
-  
-  Serial.println("--------------------------------"); 
-  Serial.println("[SETUP] FINISHED, entering main loop");
-  Serial.println("================================"); 
-}
-
-
-
-
-//---- loop ------------------------------------------------------------------------
-void loop() {
-  
-  // note millis, so we can calculate how long to delay till next read cyckle
-  long preReading = millis(); 
-
-  // lets go..
-  Serial.println("> LOOP START -------------------");
-
-  // read SDS
-  Serial.println("[SENSOR] SDS:Waking up (" + String(sds_init_delay) + "ms spin up time for sds)");
-  sds.wakeup();
-  mqtt_sleep(sds_init_delay); // short delay to allow sds to startup fan and get air sample
  
-  // == make sds reading
+  // now wait for SDS to finish warmup
+  long sdsRemain = millis() - sdsStarted;
+  mqtt_sleep(sdsRemain);
+ 
+ // == make sds reading
   PmResult pm = sds.queryPm();
   if (pm.isOk()) {
     Serial.print("[SENSOR] SDS:{OK} ");
@@ -331,11 +318,12 @@ void loop() {
     Serial.print("Could not read values from sensor, reason: ");
     Serial.println(pm.statusToString());
   }
-
-  // == DHT reading
+  
+  // == DHT reading - just after SDS reading to ensure improved accuracy.
   float humidity = dht.getHumidity();
   float temperature = dht.getTemperature();
   float heatIndex = dht.computeHeatIndex(temperature, humidity, false);
+  
   Serial.print("[SENSOR] DHT: ");
   Serial.print("{" + String(dht.getStatusString()) + "}");
   Serial.print(" H:");
@@ -344,7 +332,7 @@ void loop() {
   Serial.print(temperature, 1);
   Serial.print(" HI:");
   Serial.println(heatIndex, 1);
-
+ 
 
   // make adjusted pollution calculation of sds011 vs humidity
   float norm_p25 = normalizePM25(pm.pm25, humidity);
@@ -353,17 +341,6 @@ void loop() {
   float cpol_p10 = calculatePolutionPM10(norm_p10);
   Serial.println("[SENSOR] CONCL: PM2.5: " + String(norm_p25) + " (" + String(cpol_p25) + "% normy)");
   Serial.println("[SENSOR] CONCL: PM10: " + String(norm_p10) + " (" + String(cpol_p10) + "% normy)");
-  
-  // == MQ135 reading
-  int gas_ppm = analogRead(0);
-  Serial.print("[SENSOR] MQS: ");
-  Serial.println(gas_ppm);
-  // TODO: mq135 crazy math for real readings..
-
-  
-  // get arduino vcc -- *disabled; unreadable as we're now using A0 for MQ135
-  //float vcc_in = (ESP.getVcc() / 1000.0);
- 
   
   // end of loop code below
   // -------------------------------------
@@ -374,7 +351,7 @@ void loop() {
     Serial.println("[SENSOR] SDS: sleeping");
   }
 
-  // build mqtt data strings for push
+  // build mqtt topic strings for push
   String mqtt_temp = mqtt_topic + "TEMP";
   String mqtt_humd = mqtt_topic + "HUMDITY";
   String mqtt_hind = mqtt_topic + "HEATIND";
@@ -384,16 +361,15 @@ void loop() {
   String mqtt_p10c = mqtt_topic + "PM10_C";
   String mqtt_batt = mqtt_topic + "BATTERY";
   String mqtt_rssi = mqtt_topic + "RSSI";
-  String mqtt_gas  = mqtt_topic + "GAS_PPM";
   //String mqtt_pwr  = mqtt_topic + "PWR";
-
+	
   // do mqtt publishes
   ledBlink(500);
  
   Serial.print("[MQTT] Checking connection: ");
   if (!client.loop()) {
       Serial.println("FAIL");
-      reconnect();
+      mqtt_reconnect();
   } else {
       Serial.println("OK");
       Serial.print("[MQTT] making data publishes: "); 
@@ -405,19 +381,21 @@ void loop() {
       client.publish(mqtt_p25c.c_str(), String(cpol_p25,2).c_str());
       client.publish(mqtt_p10n.c_str(), String(norm_p10,2).c_str());
       client.publish(mqtt_p10c.c_str(), String(cpol_p10,2).c_str());
-      client.publish(mqtt_gas.c_str(), String(gas_ppm).c_str());
       //client.publish(mqtt_pwr.c_str(), String(vcc_in,2).c_str() );
       Serial.println("done");
    }
+
+  Serial.println("Disconnecting MQTT");
+  client.disconnect(); 
   
-  long exec_time = millis() - preReading;
-  long mainDelay = mainCycle - exec_time;
-  if (mainDelay > 0 ){
-      Serial.println("[SENSOR] exec time [" + String(exec_time) + "ms],entering sleep mode (" + String(mainDelay) + "ms), for next cycle");
-      mqtt_sleep(mainDelay);
-  } else {
-      Serial.println("[SENSOR] entering next cycle (Exec time: " + String (exec_time) +"ms)");
-  }
   
-  Serial.println("> LOOP END ---------------------");
+  Serial.println("--------------------------------"); 
+  Serial.println("[SETUP] FINISHED");
+  Serial.println("================================"); 
+}
+
+
+//---- loop ------------------------------------------------------------------------
+void loop() {
+  
 } // <========= loop end
