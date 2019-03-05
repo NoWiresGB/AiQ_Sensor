@@ -292,7 +292,7 @@ void setup() {
   // setup DHT11
   Serial.println("[SENSOR] DHT: initiliasing");
   pinMode(dht11_pin, INPUT);
-  dht.setup(dht11_pin, DHTesp::DHT11); //
+  dht.setup(dht11_pin, DHTesp::AM2302); //
   Serial.println("[SENSOR] DHT: Setup finished");
    
   //##################################
@@ -406,8 +406,9 @@ void loop() {
   if (!client.loop()) {
       Serial.println("FAIL");
       reconnect();
-  } else {
-      Serial.println("OK");
+  }
+  if (client.loop()) {
+      Serial.println("[MQTT] Connection OK");
       Serial.print("[MQTT] making data publishes: "); 
   
       client.publish(mqtt_temp.c_str(), String(temperature,1).c_str());
