@@ -71,10 +71,6 @@ SdsDustSensor sds(sds_rxPin, sds_txPin);
 int sleepsig_pin = 4;
 bool use_attiny_power = HIGH;
 
-
-
-
-
 //---- functions -------------------------------------------------------------------
 //----------------------------------------------------------------------------------
 
@@ -90,7 +86,6 @@ void mqtt_sleep(int sleep_length){
          client.loop();
   }
 }
-
 
 void reconnect() {
     Serial.print("[MQTT] Attempting MQTT connection: ");
@@ -247,9 +242,6 @@ void ledBlink(int duration_ms) {
 } // endfunc
 
 
-
-
-
 //---- setup -----------------------------------------------------------------------
 void setup() {
   // Let the ATTiny know we're awake to keep the lights on
@@ -275,10 +267,13 @@ void setup() {
   
   // setup WIFI
   init_wifi();
-
+  
+  long preMQTT = millis(); 
   // mDNS MQTT setup
   init_mqtt();
-   
+  long elapsedMQTT= millis() - preMQTT;
+  Serial.print("[MQTT] setup time (ms): ");
+  Serial.println(elapsedMQTT);
   
   // setup sds011 sensor
   Serial.println("[SENSOR] SDS: initialising");
@@ -430,9 +425,14 @@ void loop() {
       
       // We're done here - signal the ATTiny to kill the power and wake us up next time around
       if (use_attiny_power) {
+        Serial.println("ATtiny setup: going to sleep mode");
+        Serial.println("[MQTT] disconnecting mqtt session");
+        client.disconnect();
+        
         Serial.println("Requesting power OFF ...");
         digitalWrite(sleepsig_pin, HIGH);
         delay (1000); // sit still until we go dark
+        Serial.println("IM STILL AWAKE WHY?!!?!...");
       }
       mqtt_sleep(mainDelay);
   } else {
