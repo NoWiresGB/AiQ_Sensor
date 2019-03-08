@@ -28,6 +28,7 @@ int sds_init_delay = 30000;
 // imported from settings.h
 
 // MQTT settings
+int mqtt_max_retries = 3;
 String mqtt_server = "";
 int mqtt_port;
 String mqtt_baseId = "airQ_";
@@ -66,7 +67,9 @@ SdsDustSensor sds(sds_rxPin, sds_txPin);
 // MQ-135 pins
 // needed :(
 
-
+// SLEEPSIG for ATTiny Power board
+int sleepsig_pin = 4;
+bool use_attiny_power = HIGH;
 
 
 
@@ -91,7 +94,12 @@ void mqtt_sleep(int sleep_length){
 
 void reconnect() {
     Serial.print("[MQTT] Attempting MQTT connection: ");
+    int retry_counter = 0;
     while (!client.connected()) {
+      if (retry_counter >= mqtt_max_retries ) {
+        Serial.println(" Max retries exceeded.  Skipping");
+        break;
+      }
       Serial.print(".");
       if (client.connect(mqtt_clientId.c_str())) {
         Serial.println(" OK");
@@ -107,6 +115,7 @@ void reconnect() {
         Serial.print(" FAIL, rc=");
         Serial.print(client.state());
         Serial.println(" retry in 5 seconds");
+        retry_counter++;
         // Wait 5 seconds before retrying
         mqtt_sleep(5000);
       }
@@ -243,6 +252,9 @@ void ledBlink(int duration_ms) {
 
 //---- setup -----------------------------------------------------------------------
 void setup() {
+  // Let the ATTiny know we're awake to keep the lights on
+  pinMode(sleepsig_pin, OUTPUT);
+  digitalWrite(sleepsig_pin, LOW);
 
   // start serial
   Serial.begin(115200);
@@ -280,7 +292,7 @@ void setup() {
   // setup DHT11
   Serial.println("[SENSOR] DHT: initiliasing");
   pinMode(dht11_pin, INPUT);
-  dht.setup(dht11_pin, DHTesp::DHT11); //
+  dht.setup(dht11_pin, DHTesp::AM2302); //
   Serial.println("[SENSOR] DHT: Setup finished");
    
   //##################################
@@ -394,8 +406,9 @@ void loop() {
   if (!client.loop()) {
       Serial.println("FAIL");
       reconnect();
-  } else {
-      Serial.println("OK");
+  }
+  if (client.loop()) {
+      Serial.println("[MQTT] Connection OK");
       Serial.print("[MQTT] making data publishes: "); 
   
       client.publish(mqtt_temp.c_str(), String(temperature,1).c_str());
@@ -414,10 +427,18 @@ void loop() {
   long mainDelay = mainCycle - exec_time;
   if (mainDelay > 0 ){
       Serial.println("[SENSOR] exec time [" + String(exec_time) + "ms],entering sleep mode (" + String(mainDelay) + "ms), for next cycle");
+      
+      // We're done here - signal the ATTiny to kill the power and wake us up next time around
+      if (use_attiny_power) {
+        Serial.println("Requesting power OFF ...");
+        digitalWrite(sleepsig_pin, HIGH);
+        delay (1000); // sit still until we go dark
+      }
       mqtt_sleep(mainDelay);
   } else {
       Serial.println("[SENSOR] entering next cycle (Exec time: " + String (exec_time) +"ms)");
   }
   
   Serial.println("> LOOP END ---------------------");
+
 } // <========= loop end
