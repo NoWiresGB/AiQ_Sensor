@@ -62,6 +62,7 @@ DHTesp dht;
 // sds011 bits
 int sds_rxPin = 13;
 int sds_txPin = 15;
+long sds_wakeupTime = 0;
 SdsDustSensor sds(sds_rxPin, sds_txPin);
 
 // MQ-135 pins
@@ -241,9 +242,21 @@ void ledBlink(int duration_ms) {
   ledOff();
 } // endfunc
 
+void init_LEDs(){
+  // setup status led(s)
+  Serial.print("[LEDS] initialising");
+  pinMode(ledPin_green, OUTPUT);
+  digitalWrite(ledPin_green, HIGH);
+  pinMode(ledPin_blue, OUTPUT);
+  digitalWrite(ledPin_blue, HIGH);
+  Serial.print("[LEDS] setup complete");
+}
 
 //---- setup -----------------------------------------------------------------------
 void setup() {
+
+  long preSetup = millis();
+  
   // Let the ATTiny know we're awake to keep the lights on
   pinMode(sleepsig_pin, OUTPUT);
   digitalWrite(sleepsig_pin, LOW);
@@ -257,13 +270,22 @@ void setup() {
   Serial.println("[SETUP] Starting");
   Serial.println("--------------------------------"); 
 
-  // setup status led(s)
-  Serial.print("[LEDS] initialising");
-  pinMode(ledPin_green, OUTPUT);
-  digitalWrite(ledPin_green, HIGH);
-  pinMode(ledPin_blue, OUTPUT);
-  digitalWrite(ledPin_blue, HIGH);
-  Serial.print("[LEDS] setup complete");
+  // setup LED pins and states
+  init_LEDs();
+  
+  // setup sds011 sensor and startup for reading 1st
+  // doing this before wifi / mqtt initialisation 
+  Serial.println("[SENSOR] SDS: initialising");
+  sds.begin(); 
+  Serial.print("[SENSOR] SDS: ");
+  Serial.println(sds.queryFirmwareVersion().toString()); // prints firmware version
+  Serial.print("[SENSOR] SDS: ");
+  Serial.println(sds.setQueryReportingMode().toString()); // ensures sensor is in 'query' reporting mode
+  Serial.println("[SENSOR] SDS: Setup finished"); 
+  // read SDS
+  Serial.println("[SENSOR] SDS: Wake up");
+  sds.wakeup();
+  sds_wakeupTime = millis();
   
   // setup WIFI
   init_wifi();
@@ -275,15 +297,6 @@ void setup() {
   Serial.print("[MQTT] setup time (ms): ");
   Serial.println(elapsedMQTT);
   
-  // setup sds011 sensor
-  Serial.println("[SENSOR] SDS: initialising");
-  sds.begin(); 
-  Serial.print("[SENSOR] SDS: ");
-  Serial.println(sds.queryFirmwareVersion().toString()); // prints firmware version
-  Serial.print("[SENSOR] SDS: ");
-  Serial.println(sds.setQueryReportingMode().toString()); // ensures sensor is in 'query' reporting mode
-  Serial.println("[SENSOR] SDS: Setup finished"); 
-
   // setup DHT11
   Serial.println("[SENSOR] DHT: initiliasing");
   pinMode(dht11_pin, INPUT);
@@ -299,14 +312,13 @@ void setup() {
   //Serial.print("http://");
   //Serial.print(WiFi.localIP());
   //Serial.println("/"); 
-  
-  Serial.println("--------------------------------"); 
+
+  long setupElapsed_time = millis() - preSetup;
+  Serial.println("--------------------------------");
+  Serial.println("[SENSOR] entering next cycle (Exec time: " + String (setupElapsed_time) +"ms)");
   Serial.println("[SETUP] FINISHED, entering main loop");
   Serial.println("================================"); 
 }
-
-
-
 
 //---- loop ------------------------------------------------------------------------
 void loop() {
@@ -317,10 +329,11 @@ void loop() {
   // lets go..
   Serial.println("> LOOP START -------------------");
 
-  // read SDS
-  Serial.println("[SENSOR] SDS:Waking up (" + String(sds_init_delay) + "ms spin up time for sds)");
-  sds.wakeup();
-  mqtt_sleep(sds_init_delay); // short delay to allow sds to startup fan and get air sample
+  
+  // work out how much longer to wait..
+  int sds_remainDelay = sds_init_delay - ( millis() - sds_wakeupTime);
+  Serial.println("[SENSOR] SDS: Waiting for sensor init time remain: " + String(sds_remainDelay) + "ms");
+  mqtt_sleep(sds_remainDelay); // short delay to allow sds to startup fan and get air sample
  
   // == make sds reading
   PmResult pm = sds.queryPm();
@@ -361,13 +374,12 @@ void loop() {
   Serial.println("[SENSOR] CONCL: PM2.5: " + String(norm_p25) + " (" + String(cpol_p25) + "% normy)");
   Serial.println("[SENSOR] CONCL: PM10: " + String(norm_p10) + " (" + String(cpol_p10) + "% normy)");
   
-  // == MQ135 reading
-  int gas_ppm = analogRead(0);
-  Serial.print("[SENSOR] MQS: ");
-  Serial.println(gas_ppm);
-  // TODO: mq135 crazy math for real readings..
+//  // == MQ135 reading
+//  int gas_ppm = analogRead(0);
+//  Serial.print("[SENSOR] MQS: ");
+//  Serial.println(gas_ppm);
+//  // TODO: mq135 crazy math for real readings..
 
-  
   // get arduino vcc -- *disabled; unreadable as we're now using A0 for MQ135
   //float vcc_in = (ESP.getVcc() / 1000.0);
  
@@ -413,13 +425,14 @@ void loop() {
       client.publish(mqtt_p25c.c_str(), String(cpol_p25,2).c_str());
       client.publish(mqtt_p10n.c_str(), String(norm_p10,2).c_str());
       client.publish(mqtt_p10c.c_str(), String(cpol_p10,2).c_str());
-      client.publish(mqtt_gas.c_str(), String(gas_ppm).c_str());
+      //client.publish(mqtt_gas.c_str(), String(gas_ppm).c_str());
       //client.publish(mqtt_pwr.c_str(), String(vcc_in,2).c_str() );
       Serial.println("done");
    }
   
   long exec_time = millis() - preReading;
   long mainDelay = mainCycle - exec_time;
+  
   if (mainDelay > 0 ){
       Serial.println("[SENSOR] exec time [" + String(exec_time) + "ms],entering sleep mode (" + String(mainDelay) + "ms), for next cycle");
       
