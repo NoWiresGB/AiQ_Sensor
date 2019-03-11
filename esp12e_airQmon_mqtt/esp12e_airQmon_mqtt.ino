@@ -263,6 +263,10 @@ void setup() {
 
   // start serial
   Serial.begin(115200);
+  long startupMillis = millis();
+  Serial.println();
+  Serial.print("[POWERON] setup time (ms): ");
+  Serial.println(startupMillis);
   
   //##################################
   Serial.println();
