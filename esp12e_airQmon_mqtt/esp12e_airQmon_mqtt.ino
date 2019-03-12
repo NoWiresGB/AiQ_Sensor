@@ -1,5 +1,3 @@
-
-
 /*
   Written by: James moverley
   Description: esp airQuality monitor using DHT11/SDS011/MQ135
@@ -17,6 +15,7 @@
 #include <ESP8266mDNS.h>
 #include <DHTesp.h>
 
+// localised settings
 #include "settings.h"
 
 
