@@ -110,7 +110,7 @@ void loop(){
         serial.print(VBat);
         serial.println("mV");
 
-        if (VBat < 2000) { // Batteries critically low @ 1v per cell.  Abort & sleep to allow solar charging
+        if (VBat < 2100) { // Batteries critically low @ 1v per cell.  Abort & sleep to allow solar charging
           // disable boosts and go back to sleep
           digitalWrite (EN5, LOW);
           digitalWrite (EN3, LOW);
