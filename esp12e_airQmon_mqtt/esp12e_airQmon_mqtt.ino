@@ -367,10 +367,16 @@ void loop() {
   Serial.println("[SENSOR] CONCL: PM10: " + String(norm_p10) + " (" + String(cpol_p10) + "% normy)");
   
   // == MQ135 reading
-  int gas_ppm = analogRead(0);
-  Serial.print("[SENSOR] MQS: ");
-  Serial.println(gas_ppm);
+  // int gas_ppm = analogRead(0);
+  // Serial.print("[SENSOR] MQS: ");
+  // Serial.println(gas_ppm);
   // TODO: mq135 crazy math for real readings..
+  
+  // == Battery voltage reading
+  // == Requires swap out of R6 on PowerNinja from 220k to 700k(680kish) resistor
+  int vbat_raw = analogRead(0);
+  Serial.print("[VOLTAGE] A0raw: ");
+  Serial.println(vbat_raw);
 
   
   // get arduino vcc -- *disabled; unreadable as we're now using A0 for MQ135
@@ -418,7 +424,8 @@ void loop() {
       client.publish(mqtt_p25c.c_str(), String(cpol_p25,2).c_str());
       client.publish(mqtt_p10n.c_str(), String(norm_p10,2).c_str());
       client.publish(mqtt_p10c.c_str(), String(cpol_p10,2).c_str());
-      client.publish(mqtt_gas.c_str(), String(gas_ppm).c_str());
+      //client.publish(mqtt_gas.c_str(), String(gas_ppm).c_str());
+      client.publish(mqtt_batt.c_str(), String(vbat_raw).c_str());
       //client.publish(mqtt_pwr.c_str(), String(vcc_in,2).c_str() );
       Serial.println("done");
    }
