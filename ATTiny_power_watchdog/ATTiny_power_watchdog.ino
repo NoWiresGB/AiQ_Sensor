@@ -115,6 +115,12 @@ void loop(){
           digitalWrite (EN5, LOW);
           digitalWrite (EN3, LOW);
           run_state = 2;
+        } else { // Batteries above minimum cut-off voltage, go for main startup
+          // Now lets switch on the loads
+          digitalWrite (EN3,HIGH); // switch on 3.3v rail
+          digitalWrite (EN5, HIGH); // switch on 5v rail
+          run_state = 1; // initial power on completed, wait for device to sleep
+          myWatchdogEnable (SLEEP1); // 1 second short sleep to save power whilst waiting
         }
 
         if (overcharge && (VBat < 2950) ) { // clear overcharge state, with some hysteresis protection
@@ -127,11 +133,7 @@ void loop(){
           serial.println("Overcharge");
         }
 
-      // Now lets switch on the loads
-      digitalWrite (EN3,HIGH); // switch on 3.3v rail
-      digitalWrite (EN5, HIGH); // switch on 5v rail
-      run_state = 1; // initial power on complete wait for device to sleep
-      myWatchdogEnable (SLEEP1); // 1 second short sleep to save power whilst waiting
+      
       if (debug) { serial.println(run_state);}
       break;
       
