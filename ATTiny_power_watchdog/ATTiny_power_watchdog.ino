@@ -2,7 +2,7 @@
 #include <avr/wdt.h>
 #include <avr/power.h>;
 #include <SoftwareSerial.h>  // useful for debug, and if we end up doing signalling
-#define rxPin 5    // We use a non-existant pin as we are not interested in receiving data
+#define rxPin 5    // We use a nonexistent pin as we are not interested in receiving data
 #define txPin 1
 SoftwareSerial serial(rxPin, txPin);
 
@@ -16,13 +16,17 @@ SoftwareSerial serial(rxPin, txPin);
 #define INTERNAL1V1 INTERNAL  // for unambiguity
 
 bool debug = true;  // runstate serial output
+bool low_bat = false; // low battery flag
+#define BATTERYMIN 2400 // Minimum battery startup voltage 2.4v
+#define BATTERYRESET 2500 // Battery restart voltage 2.5v
+bool overcharge = false;  // flag to capture overcharge battery state
 
 // Analog sensing pin
 int VBatPin = A1;    // Reads in the analogue number of voltage
 unsigned long VBat = 0; // This will hold the batery pack voltage 2000->3000mv
 long Vanalog = 0; // Raw ADC readings of battery voltage
 //unsigned long Vref = 1060; // calibrated internal reference - specific to mcu or set at 1100.
-bool overcharge = false;  // flag to capture overcharge battery state
+
 
 // sleep bit patterns:
 #define SLEEP1 0b000110 //  1 second:
@@ -110,20 +114,24 @@ void loop(){
         serial.print(VBat);
         serial.println("mV");
 
-        if (VBat < 2100) { // Batteries critically low @ 1v per cell.  Abort & sleep to allow solar charging
+        if (VBat < BATTERYMIN) { // Batteries critically low @ <1.2v per cell.  Abort & sleep to allow solar charging
           // disable boosts and go back to sleep
           digitalWrite (EN5, LOW);
           digitalWrite (EN3, LOW);
+          low_bat = true;
+          run_state = 2;
+        } else if (low_bat && (VBat < BATTERYRESET) ) {
           run_state = 2;
         } else { // Batteries above minimum cut-off voltage, go for main startup
           // Now lets switch on the loads
+          low_bat = false;
           digitalWrite (EN3,HIGH); // switch on 3.3v rail
           digitalWrite (EN5, HIGH); // switch on 5v rail
           run_state = 1; // initial power on completed, wait for device to sleep
           myWatchdogEnable (SLEEP1); // 1 second short sleep to save power whilst waiting
         }
 
-        if (overcharge && (VBat < 2950) ) { // clear overcharge state, with some hysteresis protection
+        if (overcharge && (VBat < 2900) ) { // clear overcharge state, with some hysteresis protection
           overcharge = false;
           serial.println("Overcharge cleared");
         }
@@ -173,8 +181,10 @@ void loop(){
           // device didn't wake up so we shut down the boost rails and move to sleep forever
           digitalWrite (EN5, LOW);
           digitalWrite (EN3, LOW);
-          run_state = 3;
-        }    
+          // run_state = 3;
+          run_state = 2;  // (test) actually don't sleep forever just wait 5 minutes, try again
+        }
+        if (debug) { serial.println(run_state);}    
         break;
       }
       
@@ -190,6 +200,7 @@ void loop(){
         }
         
         for (int i=0; i < 75; i++) { // power down sleep for 5 minutes ( 75 x 4 seconds)
+        //for (int i=0; i < 3; i++) { // power down sleep for a few seconds (testing) ( 3 x 4 seconds)
           myWatchdogEnable (SLEEP4); 
         }
         run_state = 0;  // time to wake up again
@@ -197,6 +208,7 @@ void loop(){
         // device still awake - sleep then check again in a second
         myWatchdogEnable (SLEEP1);
       }
+      if (debug) { serial.println(run_state);}
       break;
       
       case 3:
@@ -204,6 +216,7 @@ void loop(){
       serial.println("forever");
       while (1) { // forever
         myWatchdogEnable (SLEEP8);
+        if (debug) { serial.println(run_state);}
       } 
       // no change of runstate we keep doing this forever until reset
       break;
