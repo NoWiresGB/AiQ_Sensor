@@ -18,7 +18,7 @@ SoftwareSerial serial(rxPin, txPin);
 bool debug = true;  // runstate serial output
 bool low_bat = false; // low battery flag
 #define BATTERYMIN 2400 // Minimum battery startup voltage 2.4v
-#define BATTERYRESET 2500 // Battery restart voltage 2.5v
+#define BATTERYRESET 2650 // Battery restart voltage 2.65v
 bool overcharge = false;  // flag to capture overcharge battery state
 
 // Analog sensing pin
