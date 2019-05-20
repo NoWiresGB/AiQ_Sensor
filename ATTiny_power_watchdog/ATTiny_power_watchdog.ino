@@ -1,3 +1,9 @@
+/* 
+ *  #### 5V ONLY VERSION
+ *  Description: ATTiny MCU code to control DCDC boost & solar charging board.
+ *  TODO: Voltage reading disabled 
+ */  
+ 
 #include <avr/sleep.h>
 #include <avr/wdt.h>
 #include <avr/power.h>;
@@ -6,6 +12,10 @@
 #define txPin 1
 SoftwareSerial serial(rxPin, txPin);
 
+#define BATTERYMIN 3600 // Minimum battery startup voltage 3.60v
+#define BATTERYRESET 3800 // Battery restart voltage 3.80v
+#define OVERCHGBAT 4550 // Trigger overcharge protection @  4.55v
+#define OVERCHGCLEAR 4400 // Clear overcharge state @  4.40v
 
 #define EN3 4 // ATTiny pin 3 (PB4)
 #define EN5 3 // ATTiny pin 2 (PB3)
@@ -17,8 +27,6 @@ SoftwareSerial serial(rxPin, txPin);
 
 bool debug = true;  // runstate serial output
 bool low_bat = false; // low battery flag
-#define BATTERYMIN 2400 // Minimum battery startup voltage 2.4v
-#define BATTERYRESET 2650 // Battery restart voltage 2.65v
 bool overcharge = false;  // flag to capture overcharge battery state
 
 // Analog sensing pin
@@ -107,9 +115,9 @@ void loop(){
         Vanalog = analogRead(VBatPin);
         serial.print("ADCraw: ");
         serial.println(Vanalog);
-        // Calculate voltage: Internal Ref 1060mV..   VBAT---560k--^---220k---GND
-        // Adjusted for actual reading but need more accurate resistors really! - 5% LOL.
-        VBat = (Vanalog * 3695) / 1000;
+        // Calculate voltage: Internal Ref 1060mV, max @5.5v => 1036mV..   VBAT---560k--^---130k---GND
+        // If using in parallel with D1 mini ADC increase 130k resistor to 220k (in parallel with 320k onboard D1).
+        VBat = (Vanalog * 55) / 10;
         serial.print("VBat: ");
         serial.print(VBat);
         serial.println("mV");
@@ -125,18 +133,18 @@ void loop(){
         } else { // Batteries above minimum cut-off voltage, go for main startup
           // Now lets switch on the loads
           low_bat = false;
-          digitalWrite (EN3,HIGH); // switch on 3.3v rail
+          digitalWrite (EN3,LOW); // 3.3v rail DISABLED or NOT-POPULATED
           digitalWrite (EN5, HIGH); // switch on 5v rail
           run_state = 1; // initial power on completed, wait for device to sleep
           myWatchdogEnable (SLEEP1); // 1 second short sleep to save power whilst waiting
         }
 
-        if (overcharge && (VBat < 2900) ) { // clear overcharge state, with some hysteresis protection
+        if (overcharge && (VBat < OVERCHGCLEAR) ) { // clear overcharge state, with some hysteresis protection
           overcharge = false;
           serial.println("Overcharge cleared");
         }
 
-        if (VBat > 3050) { // Batteries are at risk of overcharging.  STAY AWAKE
+        if (VBat > OVERCHGBAT) { // Batteries are at risk of overcharging.  STAY AWAKE
           overcharge = true;
           serial.println("Overcharge");
         }
@@ -168,9 +176,9 @@ void loop(){
         Vanalog = analogRead(VBatPin);
         serial.print("ADCraw: ");
         serial.println(Vanalog);
-        // Calculate voltage: Internal Ref 1060mV..   VBAT---560k--^---220k---GND
-        // Adjusted for actual reading but need more accurate resistors really! - 5% LOL.
-        VBat = (Vanalog * 3695) / 1000;
+        // Calculate voltage: Internal Ref 1060mV, max @5.5v => 1036mV..   VBAT---560k--^---130k---GND
+        // If using in parallel with D1 mini ADC increase 130k resistor to 220k (in parallel with 320k onboard D1).
+        VBat = (Vanalog * 55) / 10;
         serial.print("VBat: ");
         serial.print(VBat);
         serial.println("mV");
