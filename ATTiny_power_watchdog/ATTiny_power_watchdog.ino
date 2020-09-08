@@ -1,6 +1,6 @@
 #include <avr/sleep.h>
 #include <avr/wdt.h>
-#include <avr/power.h>;
+#include <avr/power.h>
 #include <SoftwareSerial.h>  // useful for debug, and if we end up doing signalling
 #define rxPin 5    // We use a nonexistent pin as we are not interested in receiving data
 #define txPin 1
